@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract LandRegistryNFT is ERC721, Ownable {
+    uint256 public nextTokenId;
+
+    struct LandData {
+        string cadastralNumber;
+        string location;
+        address currentOwner;
+        string[] attachedDocs;
+    }
+
+    mapping(uint256 => LandData) public landData;
+    mapping(uint256 => address[]) public ownershipHistory;
+    mapping(address => bool) public isRegistrar;
+    mapping(uint256 => string[]) public changeLogs;
+
+    event RegistrarAdded(address registrar);
+    event RegistrarRemoved(address registrar);
+    event LandRegistered(uint256 tokenId, string cadastralNumber, address owner);
+    event OwnerChanged(uint256 tokenId, address oldOwner, address newOwner);
+    event LandDataUpdated(uint256 tokenId, string field, string newValue);
+    event DocsUpdated(uint256 tokenId);
+
+    constructor(address initialOwner) ERC721("LandRegistryNFT", "LAND") Ownable(initialOwner) {}
+
+    modifier onlyRegistrar() {
+        require(isRegistrar[msg.sender], "Not a registrar");
+        _;
+    }
+
+    function addRegistrar(address registrar) external onlyOwner {
+        isRegistrar[registrar] = true;
+        emit RegistrarAdded(registrar);
+    }
+
+    function removeRegistrar(address registrar) external onlyOwner {
+        isRegistrar[registrar] = false;
+        emit RegistrarRemoved(registrar);
+    }
+
+    function registerLand(
+        string memory cadastralNumber,
+        string memory location,
+        address to,
+        string[] memory docs
+    ) external onlyRegistrar {
+        uint256 tokenId = nextTokenId++;
+
+        _safeMint(to, tokenId);
+
+        landData[tokenId] = LandData({
+            cadastralNumber: cadastralNumber,
+            location: location,
+            currentOwner: to,
+            attachedDocs: docs
+        });
+
+        ownershipHistory[tokenId].push(to);
+
+        emit LandRegistered(tokenId, cadastralNumber, to);
+    }
+
+    function updateOwner(uint256 tokenId, address newOwner) external onlyRegistrar {
+        require(exists(tokenId), "Token does not exist");
+
+        address oldOwner = landData[tokenId].currentOwner;
+        landData[tokenId].currentOwner = newOwner;
+        ownershipHistory[tokenId].push(newOwner);
+
+        _transfer(ownerOf(tokenId), newOwner, tokenId);
+
+        emit OwnerChanged(tokenId, oldOwner, newOwner);
+    }
+
+    function updateField(uint256 tokenId, string calldata fieldName, string calldata newValue) external {
+        require(ownerOf(tokenId) == msg.sender, "Only owner can update");
+        require(exists(tokenId), "Token does not exist");
+
+        if (keccak256(bytes(fieldName)) == keccak256("cadastralNumber")) {
+            landData[tokenId].cadastralNumber = newValue;
+        } else if (keccak256(bytes(fieldName)) == keccak256("location")) {
+            landData[tokenId].location = newValue;
+        } else {
+            revert("Invalid field");
+        }
+
+        changeLogs[tokenId].push(string(abi.encodePacked(fieldName, ": ", newValue)));
+        emit LandDataUpdated(tokenId, fieldName, newValue);
+    }
+
+    function updateDocs(uint256 tokenId, string[] memory newDocs) external {
+        require(ownerOf(tokenId) == msg.sender, "Only owner can update docs");
+        require(exists(tokenId), "Token does not exist");
+
+        landData[tokenId].attachedDocs = newDocs;
+        changeLogs[tokenId].push("Documents updated");
+        emit DocsUpdated(tokenId);
+    }
+
+    function getChangeLog(uint256 tokenId) external view returns (string[] memory) {
+        return changeLogs[tokenId];
+    }
+
+    function getOwnershipHistory(uint256 tokenId) external view returns (address[] memory) {
+        return ownershipHistory[tokenId];
+    }
+
+    function exists(uint256 tokenId) public view returns (bool) {
+        return _ownerOf(tokenId) != address(0);
+    }
+}
