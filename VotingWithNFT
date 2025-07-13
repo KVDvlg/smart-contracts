@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract VotingWithNFT is ERC721URIStorage, Ownable {
+    enum VoteOption { Yes, No, Abstain }
+
+    struct Voter {
+        bool isRegistered;
+        bool hasVoted;
+    }
+
+    uint256 public nextTokenId;
+    mapping(address => Voter) public voters;
+    mapping(uint8 => string) public questions;
+    mapping(uint8 => mapping(VoteOption => uint256)) public votes; // questionId => (option => count)
+
+    event Voted(address indexed voter, uint8 questionId, VoteOption option, uint256 tokenId);
+
+    constructor() ERC721("VoteRecordNFT", "VOTE") Ownable(msg.sender) {
+        // Предзаполнение 5 случайных вопросов
+        questions[1] = "Should we upgrade the protocol?";
+        questions[2] = "Do you support adding a new feature?";
+        questions[3] = "Should the team expand?";
+        questions[4] = "Do we need a DAO fund?";
+        questions[5] = "Should we change the logo?";
+    }
+
+    function registerVoter(address _voter) external onlyOwner {
+        require(!voters[_voter].isRegistered, "Already registered");
+        voters[_voter] = Voter(true, false);
+    }
+
+    function vote(uint8 questionId, VoteOption option) external {
+        require(voters[msg.sender].isRegistered, "Not registered");
+        require(!voters[msg.sender].hasVoted, "Already voted");
+        require(bytes(questions[questionId]).length > 0, "Invalid question");
+
+        voters[msg.sender].hasVoted = true;
+        votes[questionId][option] += 1;
+
+        uint256 tokenId = nextTokenId;
+        nextTokenId++;
+
+        string memory uri = _generateMetadata(msg.sender, questionId, option);
+        _mint(msg.sender, tokenId);
+        _setTokenURI(tokenId, uri);
+
+        emit Voted(msg.sender, questionId, option, tokenId);
+    }
+
+    function _generateMetadata(address voter, uint8 questionId, VoteOption option) internal pure returns (string memory) {
+        // Для простоты: текстовый URI. В реальном проекте — CID IPFS или JSON.
+        string memory opt = option == VoteOption.Yes ? "Yes" : option == VoteOption.No ? "No" : "Abstain";
+        return string(abi.encodePacked(
+            "data:text/plain,",
+            "Voter: ", _toAsciiString(voter),
+            ", Question ID: ", _toString(questionId),
+            ", Vote: ", opt
+        ));
+    }
+
+    // Вспомогательные функции
+    function _toString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) { digits++; temp /= 10; }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
+    }
+
+    function _toAsciiString(address x) internal pure returns (string memory) {
+        bytes memory s = new bytes(42);
+        s[0] = '0';
+        s[1] = 'x';
+        for (uint256 i = 0; i < 20; i++) {
+            bytes1 b = bytes1(uint8(uint256(uint160(x)) / (2**(8*(19 - i)))));
+            bytes1 hi = bytes1(uint8(b) / 16);
+            bytes1 lo = bytes1(uint8(b) - 16 * uint8(hi));
+            s[2+i*2] = _char(hi);
+            s[3+i*2] = _char(lo);
+        }
+        return string(s);
+    }
+
+    function _char(bytes1 b) internal pure returns (bytes1 c) {
+        if (uint8(b) < 10) return bytes1(uint8(b) + 0x30);
+        else return bytes1(uint8(b) + 0x57);
+    }
+}
