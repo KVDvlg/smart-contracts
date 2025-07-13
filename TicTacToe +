@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract TicTacToe {
+    address public player1;
+    address public player2;
+    address public winner;
+    address public currentPlayer;
+    bool public gameStarted;
+    bool public gameEnded;
+
+    enum Cell { Empty, X, O }
+    Cell[3][3] public board;
+
+    event GameStarted(address player1, address player2);
+    event MoveMade(address player, uint8 row, uint8 col);
+    event GameWon(address winner);
+    event GameDraw();
+
+    modifier onlyPlayers() {
+        require(msg.sender == player1 || msg.sender == player2, "Not a player");
+        _;
+    }
+
+    modifier gameActive() {
+        require(gameStarted && !gameEnded, "Game not active");
+        _;
+    }
+
+    function startGame(address _opponent) external {
+        require(!gameStarted, "Game already started");
+        require(msg.sender != _opponent, "Can't play against yourself");
+
+        player1 = msg.sender;
+        player2 = _opponent;
+        currentPlayer = player1;
+        gameStarted = true;
+
+        emit GameStarted(player1, player2);
+    }
+
+    function makeMove(uint8 row, uint8 col) external onlyPlayers gameActive {
+        require(row < 3 && col < 3, "Invalid cell");
+        require(board[row][col] == Cell.Empty, "Cell already taken");
+        require(msg.sender == currentPlayer, "Not your turn");
+
+        if (msg.sender == player1) {
+            board[row][col] = Cell.X;
+            currentPlayer = player2;
+        } else {
+            board[row][col] = Cell.O;
+            currentPlayer = player1;
+        }
+
+        emit MoveMade(msg.sender, row, col);
+
+        if (_checkWin()) {
+            gameEnded = true;
+            winner = msg.sender;
+            emit GameWon(winner);
+        } else if (_isBoardFull()) {
+            gameEnded = true;
+            emit GameDraw();
+        }
+    }
+
+    function _checkWin() internal view returns (bool) {
+        for (uint8 i = 0; i < 3; i++) {
+            // Check rows and columns
+            if (
+                board[i][0] != Cell.Empty &&
+                board[i][0] == board[i][1] &&
+                board[i][1] == board[i][2]
+            ) return true;
+            if (
+                board[0][i] != Cell.Empty &&
+                board[0][i] == board[1][i] &&
+                board[1][i] == board[2][i]
+            ) return true;
+        }
+
+        // Check diagonals
+        if (
+            board[0][0] != Cell.Empty &&
+            board[0][0] == board[1][1] &&
+            board[1][1] == board[2][2]
+        ) return true;
+        if (
+            board[0][2] != Cell.Empty &&
+            board[0][2] == board[1][1] &&
+            board[1][1] == board[2][0]
+        ) return true;
+
+        return false;
+    }
+
+    function _isBoardFull() internal view returns (bool) {
+        for (uint8 r = 0; r < 3; r++) {
+            for (uint8 c = 0; c < 3; c++) {
+                if (board[r][c] == Cell.Empty) return false;
+            }
+        }
+        return true;
+    }
+
+    function getBoard() external view returns (Cell[3][3] memory) {
+        return board;
+    }
+}
